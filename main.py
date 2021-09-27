@@ -1,13 +1,26 @@
 from telebot import TeleBot, types
 import sqlite3
-import json
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, FILES
 
 
 bot = TeleBot(BOT_TOKEN)
 conn = sqlite3.connect('users.db', check_same_thread=False)
 cursor = conn.cursor()
+
+
+#TODO: Сделать возможным загрузку файлов пользователями в определённую категорию
+@bot.message_handler(content_types=['document'])
+def get_document_info(message):
+    print(message.document.file_id)
+
+
+@bot.message_handler(commands=['shedule', 'files'])
+def get_commands(message):
+    if message.text == '/shedule':
+        send_shedule(message)
+    elif message.text == '/files':
+        send_files_menu(message)
 
 
 @bot.message_handler(commands=['start'])
@@ -21,6 +34,8 @@ def start(message):
 def get_request(message):
     if message.text == 'Расписание':
         send_shedule(message)
+    elif message.text == 'Файлы':
+        send_files_menu(message)
 
 
 def get_name(message):
@@ -69,18 +84,48 @@ def send_shedule(message):
     bot.send_media_group(message.from_user.id, shedule)
 
 
-def checker(message):
-    buttons = set_buttons(['Расписание', 'Файлы'])
-    remove_buttons = types.ReplyKeyboardRemove()
+def send_files_menu(message):
+    if message.text == 'Файлы' or message.text == '/files' or message.text == 'Назад':
+        buttons = set_buttons(['Учебники', 'Тетради', 'Презентации', 'Задания', 'ГДЗ', 'В меню'])
 
+        bot.send_message(message.from_user.id, 'Что тебе нужно в этот раз?', reply_markup=buttons)
+        bot.register_next_step_handler(message, send_files_menu)
+    elif message.text == 'Учебники' or message.text == 'Тетради' or message.text == 'Презентации' or message.text == 'ГДЗ':
+        buttons = set_buttons(['Вышмат', 'Инженерная графика', 'Физика', 'Химия', 'История', 'Экология', 'Английский язык', 'Назад', 'В меню'])
+
+        bot.send_message(message.from_user.id, 'Какие тебе нужны?', reply_markup=buttons)
+        bot.register_next_step_handler(message, send_files, message.text)
+    elif message.text == 'В меню':
+        set_menu(message)
+
+
+def send_files(message, file_type):
+    if message.text == 'Файлы' or message.text == '/files' or message.text == 'Назад' or message.text == 'В меню':
+        send_files_menu(message)
+    else:
+        for id, name in FILES[file_type][message.text].items():
+            bot.send_document(message.from_user.id, data=id, caption=name)
+
+        bot.register_next_step_handler(message, send_files, file_type)
+
+
+def checker(message):
     if message.text == 'Да':
-        bot.send_message(message.from_user.id, text='Круто, теперь можешь потыкать кнопки!', reply_markup=buttons)
+        bot.send_message(message.from_user.id, text='Круто, теперь можешь потыкать кнопки!')
+        set_menu(message)
     elif message.text == 'Нет':
         cursor.execute(f'DELETE FROM users WHERE id = {message.from_user.id};')
         conn.commit()
+        
+        remove_buttons = types.ReplyKeyboardRemove()
 
         bot.send_message(message.from_user.id, text='Окей, давай заново. Как тебя зовут, слоупок?', reply_markup=remove_buttons)
         bot.register_next_step_handler(message, get_name)
+
+
+def set_menu(message):
+    buttons = set_buttons(['Расписание', 'Файлы'])
+    bot.send_message(message.from_user.id, text='Вот меню, выбирай что тебе угодно!', reply_markup=buttons)
 
 
 def set_buttons(buttons_list):
