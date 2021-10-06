@@ -1,24 +1,28 @@
+import psycopg2
 from telebot import TeleBot, types
-import sqlite3
 
-from config import BOT_TOKEN, FILES
+from config import BOT_TOKEN
+from config import DB_USER, DB_DATABASE, DB_PASSWORD, DB_HOST
 
 
 bot = TeleBot(BOT_TOKEN)
-conn = sqlite3.connect('users.db', check_same_thread=False)
+conn = psycopg2.connect(user=DB_USER,
+                        database=DB_DATABASE,
+                        password=DB_PASSWORD,
+                        host=DB_HOST,
+                        port="5432")
 cursor = conn.cursor()
 
 
-#TODO: Сделать возможным загрузку файлов пользователями в определённую категорию
 @bot.message_handler(content_types=['document'])
 def get_document_info(message):
     print(message.document.file_id)
 
 
-@bot.message_handler(commands=['shedule', 'files'])
+@bot.message_handler(commands=['timetable', 'files'])
 def get_commands(message):
-    if message.text == '/shedule':
-        send_shedule(message)
+    if message.text == '/timetable':
+        send_timetable(message)
     elif message.text == '/files':
         send_files_menu(message)
 
@@ -33,14 +37,14 @@ def start(message):
 @bot.message_handler(content_types=['text'])
 def get_request(message):
     if message.text == 'Расписание':
-        send_shedule(message)
+        send_timetable(message)
     elif message.text == 'Файлы':
         send_files_menu(message)
 
 
 def get_name(message):
     name = message.text
-    cursor.execute(f'INSERT INTO users(id, name) VALUES ({message.from_user.id}, ?);', (name,))
+    cursor.execute('INSERT INTO students(id, name) VALUES (%s, %s);', (message.from_user.id, name))
     conn.commit()
 
     bot.send_message(message.from_user.id, 'А фамилия?')
@@ -49,7 +53,7 @@ def get_name(message):
 
 def get_surname(message):
     surname = message.text
-    cursor.execute(f'UPDATE users SET surname = ? WHERE id = {message.from_user.id};', (surname,))
+    cursor.execute('UPDATE students SET surname = %s WHERE id = %s;', (surname, message.from_user.id))
     conn.commit()
 
     buttons = set_buttons(['1', '2'])
@@ -60,28 +64,27 @@ def get_surname(message):
 
 def get_group_number(message):
     group_number = message.text
-    cursor.execute(f'UPDATE users SET group_number = ? WHERE id = {message.from_user.id};', (group_number,))
+    cursor.execute('UPDATE students SET group_number = %s WHERE id = %s;', (group_number, message.from_user.id))
     conn.commit()
 
-    cursor.execute(f'SELECT name, surname, group_number FROM users WHERE id = {message.from_user.id};')
+    cursor.execute('SELECT name, surname, group_number FROM students WHERE id = %s;', (message.from_user.id, ))
     user = cursor.fetchone()
-    print(user)
-    
+
     buttons = set_buttons(['Да', 'Нет'])
 
     bot.send_message(message.from_user.id, f'Ты {user[0]} {user[1]} из {user[2]} группы, верно?', reply_markup=buttons)
     bot.register_next_step_handler(message, checker)
 
 
-def send_shedule(message):
-    shedule = [
-            types.InputMediaPhoto(open('./shedule/tuesday.png', 'rb'), caption='Вот твоё расписание!'),
-            types.InputMediaPhoto(open('./shedule/wednesday.png', 'rb')),
-            types.InputMediaPhoto(open('./shedule/thursday.png', 'rb')),
-            types.InputMediaPhoto(open('./shedule/friday.png', 'rb')),
+def send_timetable(message):
+    timetable = [
+            types.InputMediaPhoto(open('./timetable/tuesday.png', 'rb'), caption='Вот твоё расписание!'),
+            types.InputMediaPhoto(open('./timetable/wednesday.png', 'rb')),
+            types.InputMediaPhoto(open('./timetable/thursday.png', 'rb')),
+            types.InputMediaPhoto(open('./timetable/friday.png', 'rb')),
         ]
 
-    bot.send_media_group(message.from_user.id, shedule)
+    bot.send_media_group(message.from_user.id, timetable)
 
 
 def send_files_menu(message):
@@ -91,7 +94,11 @@ def send_files_menu(message):
         bot.send_message(message.from_user.id, 'Что тебе нужно в этот раз?', reply_markup=buttons)
         bot.register_next_step_handler(message, send_files_menu)
     elif message.text == 'Учебники' or message.text == 'Тетради' or message.text == 'Презентации' or message.text == 'ГДЗ':
-        buttons = set_buttons(['Вышмат', 'Инженерная графика', 'Физика', 'Химия', 'История', 'Экология', 'Английский язык', 'Назад', 'В меню'])
+        buttons = types.ReplyKeyboardMarkup()
+        buttons.add(types.KeyboardButton('Вышмат'), types.KeyboardButton('Инженерная графика'), types.KeyboardButton('Физика'))
+        buttons.add(types.KeyboardButton('🧪Химия'), types.KeyboardButton('История'), types.KeyboardButton('🪴Экология'))
+        buttons.add(types.KeyboardButton('🇬🇧Английский язык'))
+        buttons.add(types.KeyboardButton('Назад'), types.KeyboardButton('В меню'))
 
         bot.send_message(message.from_user.id, 'Какие тебе нужны?', reply_markup=buttons)
         bot.register_next_step_handler(message, send_files, message.text)
@@ -99,14 +106,22 @@ def send_files_menu(message):
         set_menu(message)
 
 
-def send_files(message, file_type):
+def send_files(message, category):
     if message.text == 'Файлы' or message.text == '/files' or message.text == 'Назад' or message.text == 'В меню':
         send_files_menu(message)
     else:
-        for id, name in FILES[file_type][message.text].items():
-            bot.send_document(message.from_user.id, data=id, caption=name)
+        subject = message.text
 
-        bot.register_next_step_handler(message, send_files, file_type)
+        cursor.execute('SELECT id, name FROM files WHERE category = %s and subject = %s', (category, subject))
+        files = cursor.fetchall()
+
+        if not files:
+            bot.send_message(message.from_user.id, 'Такого у нас пока нет!')
+        else:
+            for file_id, name in files:
+                bot.send_document(message.from_user.id, data=file_id, caption=name)
+
+        bot.register_next_step_handler(message, send_files, category)
 
 
 def checker(message):
@@ -114,7 +129,7 @@ def checker(message):
         bot.send_message(message.from_user.id, text='Круто, теперь можешь потыкать кнопки!')
         set_menu(message)
     elif message.text == 'Нет':
-        cursor.execute(f'DELETE FROM users WHERE id = {message.from_user.id};')
+        cursor.execute(f'DELETE FROM students WHERE id = {message.from_user.id};')
         conn.commit()
         
         remove_buttons = types.ReplyKeyboardRemove()
