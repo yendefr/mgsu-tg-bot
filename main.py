@@ -19,11 +19,13 @@ def get_document_info(message):
     print(message.document.file_id)
 
 
-@bot.message_handler(commands=['timetable', 'files'])
+@bot.message_handler(commands=['timetable', 'files', 'tasks'])
 def get_commands(message):
     if message.text == '/timetable':
         send_timetable(message)
     elif message.text == '/files':
+        send_files_menu(message)
+    elif message.text == '/tasks':
         send_files_menu(message)
 
 
@@ -40,6 +42,8 @@ def get_request(message):
         send_timetable(message)
     elif message.text == 'Файлы':
         send_files_menu(message)
+    elif message.text == 'Домашка':
+        send_tasks(message)
 
 
 def get_name(message):
@@ -56,7 +60,9 @@ def get_surname(message):
     cursor.execute('UPDATE students SET surname = %s WHERE id = %s;', (surname, message.from_user.id))
     conn.commit()
 
-    buttons = set_buttons(['1', '2'])
+    buttons = set_buttons((
+        ['1', '2'],
+    ))
 
     bot.send_message(message.from_user.id, text='Группа?', reply_markup=buttons)
     bot.register_next_step_handler(message, get_group_number)
@@ -70,7 +76,9 @@ def get_group_number(message):
     cursor.execute('SELECT name, surname, group_number FROM students WHERE id = %s;', (message.from_user.id, ))
     user = cursor.fetchone()
 
-    buttons = set_buttons(['Да', 'Нет'])
+    buttons = set_buttons((
+        ['Да', 'Нет'],
+    ))
 
     bot.send_message(message.from_user.id, f'Ты {user[0]} {user[1]} из {user[2]} группы, верно?', reply_markup=buttons)
     bot.register_next_step_handler(message, checker)
@@ -87,23 +95,39 @@ def send_timetable(message):
     bot.send_media_group(message.from_user.id, timetable)
 
 
+@bot.message_handler(content_types=['text'])
+def get_tasks(message):
+    pass
+
+
+@bot.message_handler(content_types=['text'])
+def send_tasks(message):
+    pass
+
+
 def send_files_menu(message):
     if message.text == 'Файлы' or message.text == '/files' or message.text == 'Назад':
-        buttons = set_buttons(['Учебники', 'Тетради', 'Презентации', 'Задания', 'ГДЗ', 'В меню'])
+        buttons = set_buttons((
+            ['Учебники', 'Тетради'],
+            ['Презентации', 'Задачники'],
+            ['ГДЗ'],
+            ['В меню'],
+        ))
 
         bot.send_message(message.from_user.id, 'Что тебе нужно в этот раз?', reply_markup=buttons)
         bot.register_next_step_handler(message, send_files_menu)
-    elif message.text == 'Учебники' or message.text == 'Тетради' or message.text == 'Презентации' or message.text == 'ГДЗ':
-        buttons = types.ReplyKeyboardMarkup()
-        buttons.add(types.KeyboardButton('Вышмат'), types.KeyboardButton('Инженерная графика'), types.KeyboardButton('Физика'))
-        buttons.add(types.KeyboardButton('🧪Химия'), types.KeyboardButton('История'), types.KeyboardButton('🪴Экология'))
-        buttons.add(types.KeyboardButton('🇬🇧Английский язык'))
-        buttons.add(types.KeyboardButton('Назад'), types.KeyboardButton('В меню'))
+    elif message.text == 'В меню':
+        set_menu(message)
+    else:
+        buttons = set_buttons((
+            ['Вышмат', 'Инженерная графика', 'Физика'],
+            ['🧪Химия', 'История', '🪴Экология'],
+            ['🇬🇧Английский язык'],
+            ['Назад', 'В меню'],
+        ))
 
         bot.send_message(message.from_user.id, 'Какие тебе нужны?', reply_markup=buttons)
         bot.register_next_step_handler(message, send_files, message.text)
-    elif message.text == 'В меню':
-        set_menu(message)
 
 
 def send_files(message, category):
@@ -139,14 +163,14 @@ def checker(message):
 
 
 def set_menu(message):
-    buttons = set_buttons(['Расписание', 'Файлы'])
+    buttons = set_buttons((['Расписание', 'Файлы'], ['Получить домашку', 'Записать домашку']))
     bot.send_message(message.from_user.id, text='Вот меню, выбирай что тебе угодно!', reply_markup=buttons)
 
 
-def set_buttons(buttons_list):
-    buttons = types.ReplyKeyboardMarkup()
-    for button in buttons_list:
-        buttons.add(types.KeyboardButton(button))
+def set_buttons(buttons_lists: tuple):
+    buttons = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    for buttons_list in buttons_lists:
+        buttons.add(*list(map(types.KeyboardButton, buttons_list)))
     return buttons
 
 
